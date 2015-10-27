@@ -1,3 +1,5 @@
+'use strict';
+
 var http = require('http'),
 	https = require('https'),
 	cheerio = require('cheerio');
@@ -7,27 +9,28 @@ var shorthandProperties = {
 	"image": "image:url",
 	"video": "video:url",
 	"audio": "audio:url"
-}
+};
 
 
 exports = module.exports = function(url, cb, options){
-	exports.getHTML(url, function(err, html){
-		if (err) return cb(err);
+	exports.getHTML(url, function(err, html) {
+		if (err) {
+			return cb(err);
+		}
 		var $ = cheerio.load(html);
 		cb(null, exports.parse($, options));
-	})
-}
+	});
+};
 
 
 exports.getHTML = function(url, cb){
 	var purl = require('url').parse(url);
 	
-	if (!purl.protocol)
+	if (!purl.protocol) {
 		purl = require('url').parse("http://"+url);
+	}
 	
-	var httpModule = purl.protocol === 'https:'
-		? https
-		: http;
+	var httpModule = purl.protocol === 'https:'? https : http;
 	
 	url = require('url').format(purl);
 	
@@ -55,15 +58,15 @@ exports.getHTML = function(url, cb){
 	
 	client.on('error', function(err){
 		cb(err);
-	})
-}
+	});
+};
 
 
 exports.parse = function($, options){
 	options = options || {};
 	
 	// Check for xml namespace
-	var namespace,
+	var namespaces = options.namespaces || [],
 		$html = $('html');
 	
 	if ($html.length)
@@ -73,44 +76,57 @@ exports.parse = function($, options){
 		attribKeys.some(function(attrName){
 			var attrValue = $html.attr(attrName);
 			
-			if (attrValue.toLowerCase() === 'http://opengraphprotocol.org/schema/'
-				&& attrName.substring(0, 6) == 'xmlns:')
-			{
-				namespace = attrName.substring(6);
+			if (attrValue.toLowerCase() === 'http://opengraphprotocol.org/schema/' && attrName.substring(0, 6) === 'xmlns:') {
+				namespaces.push(attrName.substring(6));
 				return false;
 			}
-		})
+		});
 	}
-	else if (options.strict)
+	else if (options.strict) {
 		return null;
-	
-	if (!namespace) 
+	}
+
+	if (namespaces.length === 0) {
 		// If no namespace is explicitly set..
-		if (options.strict)
+		if (options.strict) {
 			// and strict mode is specified, abort parse.
 			return null;
-		else
+		} else {
 			// and strict mode is not specific, then default to "og"
-			namespace = "og";
+			namespaces.push("og");
+		}
+	}
 	
 	var meta = {},
 		metaTags = $('meta');
 	
+	var getProperty = function(element) {
+		var property = element.attr('property');
+		if ( ! property) {
+			return null;
+		}
+
+		for (var i = 0; i < namespaces.length; i++) {
+			if (property.substring(0, namespaces[i].length) === namespaces[i]) {
+				return options.overall ? property : property.substring(namespaces[i].length + 1);
+			}
+		}
+
+		return null;
+	};
+
 	metaTags.each(function() {
-		var element = $(this);
-			propertyAttr = element.attr('property');
-		
-		// If meta element isn't an "og:" property, skip it
-		if (!propertyAttr || propertyAttr.substring(0, namespace.length) !== namespace)
+		var element = $(this),
+ 			property = getProperty(element), 
+ 			content = element.attr('content');
+
+		if ( ! property) {
 			return;
-		
-		var property = propertyAttr.substring(namespace.length+1),
-			content = element.attr('content');
-		
+		}
+
 		// If property is a shorthand for a longer property,
 		// Use the full property
 		property = shorthandProperties[property] || property;
-		
 		
 		var key, tmp,
 			ptr = meta,
@@ -155,4 +171,4 @@ exports.parse = function($, options){
 	});
 	
 	return meta;
-}
+};
